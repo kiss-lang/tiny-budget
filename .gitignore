@@ -1,4 +1,5 @@
 node_modules/
 .haxelib/
 libs/
+frontend.js
 index.js

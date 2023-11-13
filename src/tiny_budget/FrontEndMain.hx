@@ -1,7 +1,7 @@
 package tiny_budget;
 
-class Main {
+class FrontEndMain {
     static function main() {
-        Main_.main();
+        FrontEndMain_.main();
     }
 }

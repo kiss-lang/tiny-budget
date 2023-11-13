@@ -1,7 +1,13 @@
 -lib kiss
 -lib kiss-express
--cp externs
 -cp src
---main tiny_budget.Main
+--each
+--main tiny_budget.FrontEndMain
+--dce full
+--js frontend.js
+--next
+-cp externs
+-lib datetime
+--main tiny_budget.ServerMain
 --js index.js
 --cmd node index.js

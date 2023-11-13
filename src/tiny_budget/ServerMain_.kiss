@@ -1,0 +1,33 @@
+(import tiny_budget.ServerMain)
+(import datetime.DateTime)
+
+(defMacro scriptContent []
+    (File.getContent "frontend.js"))
+
+(savedVar :Array<Record> groundTruthValues [])
+(savedVar :Array<Record> transactions [])
+
+(savedVar :Map<String,Record> repeatTransactions (new Map))
+
+(function balanceAsOf [:DateTime targetTime]
+    (let [gtv groundTruthValues
+            &mut :DateTime groundTruthTime null
+            &mut :Float groundTruthAmount 0]
+        (whileLet [(MoneyAsOf time amount) (gtv.shift)
+                    time (DateTime.fromDate time)]
+            (if #{time > targetTime;}#
+                    (break)
+                {
+                    (set groundTruthTime time)
+                    (set groundTruthAmount amount)
+                }))
+        groundTruthAmount))
+
+
+(let [app (Express.call)
+        port 3000
+        title "Tiny Budget"]
+    (app.get "/" ->[req res next] (res.send "<head><title>${title}</title><script>$(scriptContent)</script></head><p id='pTag'>Hello world from the backend</p> $(balanceAsOf (DateTime.now))"))
+    (#unless test
+        (app.listen port ->(print "kiss-express listening at http://localhost:$port"))))
+
