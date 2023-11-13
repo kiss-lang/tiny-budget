@@ -1,0 +1,7 @@
+-lib kiss
+-lib kiss-express
+-cp externs
+-cp src
+--main tiny_budget.Main
+--js index.js
+--cmd node index.js
