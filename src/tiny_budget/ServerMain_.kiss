@@ -4,15 +4,16 @@
 (defMacro scriptContent []
     (File.getContent "frontend.js"))
 
-(savedVar :Array<Record> groundTruthValues [])
+(savedVar :Array<Record> groundTruthValues [(MoneyAsOf (DateTime.now) 0)])
 (savedVar :Array<Record> transactions [])
 
 (savedVar :Map<String,Record> repeatTransactions (new Map))
 
-(function balanceAsOf [:DateTime targetTime]
+(function balanceAsOf [:DateTime targetTime :Bool actual]
     (let [gtv groundTruthValues
             &mut :DateTime groundTruthTime null
             &mut :Float groundTruthAmount 0]
+
         (whileLet [(MoneyAsOf time amount) (gtv.shift)
                     time (DateTime.fromDate time)]
             (if #{time > targetTime;}#
@@ -21,13 +22,56 @@
                     (set groundTruthTime time)
                     (set groundTruthAmount amount)
                 }))
-        groundTruthAmount))
 
+        (let [&mut sum groundTruthAmount
+                t transactions]
+            (whileLet [(MoneyAsOf time amount) (t.shift)
+                            tTime (DateTime.fromDate time)]
+                (when (and #{tTime > groundTruthTime;}# #{tTime <= targetTime;}#)
+                    (+= sum amount)))
+            sum)))
 
 (let [app (Express.call)
         port 3000
         title "Tiny Budget"]
-    (app.get "/" ->[req res next] (res.send "<head><title>${title}</title><script>$(scriptContent)</script></head><p id='pTag'>Hello world from the backend</p> $(balanceAsOf (DateTime.now))"))
+    
+    (app.use (BodyParser.value.urlencoded))
+    (app.get "/" ->[req res next]
+        (res.send (+ 
+"<head><title>${title}</title><script>$(scriptContent)</script></head>"
+"<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
+"<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
+###"
+<form action="/submit" method="post">
+    <label for="amountBox">Amount</label>
+    <input type="text" id="amountBox" name="amountBox"></input>
+    <label for="type">Transaction type:</label>
+    <select id="type" name="type">
+        <option value="Expense">Expense</option>
+        <option value="Gain">Gain</option>
+        <option value="GroundTruth">Ground Truth</option>
+    </select>
+    <input type="submit" value="Submit"></input>
+</form>
+"###)))
+
+    (app.post "/submit" ->[req res] {
+        (try
+            (let [amount (Std.parseFloat req.body.amountBox)]
+                (print "handling ${req.body.type} of ${amount}")
+                (withMutProperties [groundTruthValues transactions repeatTransactions]
+                    (case req.body.type
+                        ("GroundTruth"
+                            (groundTruthValues.push (MoneyAsOf (Date.now) amount)))
+                        ("Expense"
+                            (transactions.push (MoneyAsOf (Date.now) -amount)))
+                        ("Gain"
+                            (transactions.push (MoneyAsOf (Date.now) amount)))
+                        (never otherwise))))
+            (catch [e] (print "couldn't parse amount")))
+        
+        (res.redirect "/")})
+
     (#unless test
         (app.listen port ->(print "kiss-express listening at http://localhost:$port"))))
 

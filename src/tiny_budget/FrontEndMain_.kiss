@@ -1,9 +1,6 @@
-(loadFrom "kiss-express" "src/Util.kiss")
+(loadFrom "kiss-express" "src/FrontendUtil.kiss")
 
 (import js.Browser)
 
 (Browser.window.addEventListener "load" ->{
-    (let [p <#pTag>]
-        (set p.innerHTML "Hello world from the frontend!")
-        )
 })

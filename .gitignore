@@ -3,3 +3,4 @@ node_modules/
 libs/
 frontend.js
 index.js
+.ServerMain_.json
