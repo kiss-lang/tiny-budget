@@ -1,13 +1,19 @@
 (import tiny_budget.ServerMain)
 (import datetime.DateTime)
+(import datetime.DateTimeInterval)
 
 (defMacro scriptContent []
     (File.getContent "frontend.js"))
 
 (savedVar :Array<Record> groundTruthValues [(MoneyAsOf (DateTime.now) 0)])
 (savedVar :Array<Record> transactions [])
+(savedVar :Array<Record> transactionsOverTime [])
 
 (savedVar :Map<String,Record> repeatTransactions (new Map))
+
+(var dayDelta (DateTimeInterval.create (DateTime.fromDate (new Date 2023 0 1 0 0 0)) (DateTime.fromDate (new Date 2023 0 2 0 0 0))))
+// TODO delete this
+(var monthDelta (DateTimeInterval.create (DateTime.fromDate (new Date 2023 0 1 0 0 0)) (DateTime.fromDate (new Date 2023 1 1 0 0 0))))
 
 (function balanceAsOf [:DateTime targetTime :Bool actual]
     (let [gtv groundTruthValues
@@ -24,54 +30,104 @@
                 }))
 
         (let [&mut sum groundTruthAmount
-                t transactions]
+                t transactions
+                tot transactionsOverTime]
+
             (whileLet [(MoneyAsOf time amount) (t.shift)
                             tTime (DateTime.fromDate time)]
-                (when (and #{tTime > groundTruthTime;}# #{tTime <= targetTime;}#)
+                (when #{tTime > groundTruthTime && tTime <= targetTime;}#
                     (+= sum amount)))
+
+            (whileLet [(MoneyOver start end amount asOf) (tot.shift)]
+                (unless asOf
+                    (set asOf end))
+                (let [startTime (DateTime.fromDate start)
+                        endTime (DateTime.fromDate end)
+                        elapsedStartTime (DateTime.fromTime (max (groundTruthTime.getTime) (startTime.getTime)))
+                        elapsedEndTime (DateTime.fromTime (min (targetTime.getTime) (endTime.getTime)))
+                        asOfTime (DateTime.fromDate asOf)]
+                    (if actual
+                            // For calculating an actual balance estimate, the "as of" time for all ongoing transactions must be passed
+                            (when #{asOfTime > groundTruthTime && asOfTime <= targetTime;}#
+                                (+= sum amount))
+                        // For calculating a theoretical balance estimate, only the start, end, and targetTime matter
+                        (when #{startTime > groundTruthTime || targetTime <= endTime;}#
+                            (+= sum (* amount #{(elapsedEndTime - elapsedStartTime).getTotalSeconds() / (endTime - startTime).getTotalSeconds();}#))))))
+
             sum)))
 
-(let [app (Express.call)
-        port 3000
-        title "Tiny Budget"]
-    
-    (app.use (BodyParser.value.urlencoded))
-    (app.get "/" ->[req res next]
-        (res.send (+ 
-"<head><title>${title}</title><script>$(scriptContent)</script></head>"
-"<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
-"<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
-###"
-<form action="/submit" method="post">
-    <label for="amountBox">Amount</label>
-    <input type="text" id="amountBox" name="amountBox"></input>
-    <label for="type">Transaction type:</label>
-    <select id="type" name="type">
-        <option value="Expense">Expense</option>
-        <option value="Gain">Gain</option>
-        <option value="GroundTruth">Ground Truth</option>
-    </select>
-    <input type="submit" value="Submit"></input>
-</form>
-"###)))
+(var GRAPH_TIME_RANGE 365)
+(var GRAPH_DEFAULT_YMAX 1000.0)
+(var GRAPH_DEFAULT_YMIN -1000.0)
 
-    (app.post "/submit" ->[req res] {
-        (try
-            (let [amount (Std.parseFloat req.body.amountBox)]
-                (print "handling ${req.body.type} of ${amount}")
-                (withMutProperties [groundTruthValues transactions repeatTransactions]
-                    (case req.body.type
-                        ("GroundTruth"
-                            (groundTruthValues.push (MoneyAsOf (Date.now) amount)))
-                        ("Expense"
-                            (transactions.push (MoneyAsOf (Date.now) -amount)))
-                        ("Gain"
-                            (transactions.push (MoneyAsOf (Date.now) amount)))
-                        (never otherwise))))
-            (catch [e] (print "couldn't parse amount")))
+(function main []
+    (let [app (Express.call)
+            port 3000
+            title "Tiny Budget"
+            &mut actualPoints ""
+            &mut theoreticalPoints ""]
         
-        (res.redirect "/")})
+        (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
+            (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
+                (+= actualPoints "${day},$(balanceAsOf relativeDay true) ")
+                (+= theoreticalPoints "${day},$(balanceAsOf relativeDay false) ")))
+        
+        (app.use (BodyParser.value.urlencoded))
+        (app.get "/" ->[req res next]
+            (res.send (+ 
+"<head><title>${title}</title><script>$(scriptContent)</script></head>"
+"<body>"
+    "<svg viewBox=\"${-GRAPH_TIME_RANGE} ${GRAPH_DEFAULT_YMIN} $(* 2 GRAPH_TIME_RANGE) $(- GRAPH_DEFAULT_YMAX GRAPH_DEFAULT_YMIN)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
+        #"<g transform="scale(1,-1)">"#
+            "<polyline points=\"0,${GRAPH_DEFAULT_YMIN} 0,${GRAPH_DEFAULT_YMAX}\" stroke=\"black\" />" // Y-axis
+            "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
+            "<polyline points=\"${actualPoints}\" stroke=\"green\" fill=\"none\" />" // actual line
+            "<polyline points=\"${theoreticalPoints}\" stroke=\"purple\" fill=\"none\" />" // theoretical line
 
-    (#unless test
-        (app.listen port ->(print "kiss-express listening at http://localhost:$port"))))
+        "</g>"
+    "</svg>"
 
+    "<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
+    "<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
+    ###"
+    <form action="/submit" method="post">
+        <label for="amountBox">Amount</label>
+        <input type="text" id="amountBox" name="amountBox"></input>
+        <label for="type">Transaction type:</label>
+        <select id="type" name="type">
+            <option value="Expense">Expense</option>
+            <option value="Gain">Gain</option>
+            <option value="GroundTruth">Ground Truth</option>
+            <option value="GainOverMonth">Gain over a month</option> <!-- TODO remove this -->
+        </select>
+        <input type="submit" value="Submit"></input>
+    </form>
+    "###
+"</body>")))
+
+        (app.post "/submit" ->[req res] {
+            (try
+                (let [amount (Std.parseFloat req.body.amountBox)]
+                    (print "handling ${req.body.type} of ${amount}")
+                    (withMutProperties [groundTruthValues transactions transactionsOverTime repeatTransactions]
+                        (case req.body.type
+                            ("GroundTruth"
+                                (groundTruthValues.push (MoneyAsOf (Date.now) amount)))
+                            ("Expense"
+                                (transactions.push (MoneyAsOf (Date.now) -amount)))
+                            ("Gain"
+                                (transactions.push (MoneyAsOf (Date.now) amount)))
+                            // TODO remove this:
+                            ("GainOverMonth"
+                                (transactionsOverTime.push (MoneyOver 
+                                                                (Date.now)
+                                                                (let [nowDateTime (DateTime.fromDate (Date.now))]
+                                                                    (.getDate #{nowDateTime + monthDelta;}#))
+                                                                amount) ))
+                            (never otherwise))))
+                (catch [e] (print "couldn't parse amount")))
+            
+            (res.redirect "/")})
+
+        (#unless test
+            (app.listen port ->(print "kiss-express listening at http://localhost:$port")))))
