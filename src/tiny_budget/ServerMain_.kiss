@@ -59,18 +59,29 @@
 (var GRAPH_TIME_RANGE 365)
 (var GRAPH_DEFAULT_YMAX 1000.0)
 (var GRAPH_DEFAULT_YMIN -1000.0)
+(var TICK_SIZE (/ (+ GRAPH_DEFAULT_YMAX (Math.abs GRAPH_DEFAULT_YMIN)) 50))
 
 (function main []
     (let [app (Express.call)
             port 3000
             title "Tiny Budget"
             &mut actualPoints ""
-            &mut theoreticalPoints ""]
+            &mut theoreticalPoints ""
+            &mut tickLines ""]
         
         (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
             (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
                 (+= actualPoints "${day},$(balanceAsOf relativeDay true) ")
                 (+= theoreticalPoints "${day},$(balanceAsOf relativeDay false) ")))
+        
+        (var MONTH_DAYS 30)
+        (let [tickOffset (- 1 (.getDay (DateTime.now)))
+                &mut nextX tickOffset]
+            (while (> nextX -GRAPH_TIME_RANGE)
+                (-= nextX MONTH_DAYS))
+            (while (<= nextX GRAPH_TIME_RANGE)
+                (+= tickLines "<polyline points=\"${nextX},$(- (fHalf TICK_SIZE)) ${nextX},$(fHalf TICK_SIZE)\" stroke=\"black\" />")
+                (+= nextX MONTH_DAYS)))
         
         (app.use (BodyParser.value.urlencoded))
         (app.get "/" ->[req res next]
@@ -83,6 +94,7 @@
             "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
             "<polyline points=\"${actualPoints}\" stroke=\"green\" fill=\"none\" />" // actual line
             "<polyline points=\"${theoreticalPoints}\" stroke=\"purple\" fill=\"none\" />" // theoretical line
+            tickLines
 
         "</g>"
     "</svg>"
