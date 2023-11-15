@@ -54,15 +54,16 @@
                             (when #{asOfTime > groundTruthTime && asOfTime <= targetTime;}#
                                 (+= sum amount))
                         // For calculating a theoretical balance estimate, only the start, end, and targetTime matter
-                        (when #{startTime > groundTruthTime || targetTime <= endTime;}#
-                            (+= sum (* amount #{(elapsedEndTime - elapsedStartTime).getTotalSeconds() / (endTime - startTime).getTotalSeconds();}#))))))
+                        (if #{elapsedStartTime >= groundTruthTime && targetTime > endTime;}#
+                                (+= sum amount)
+                            (when #{startTime > groundTruthTime || targetTime <= endTime;}#
+                                (+= sum (* amount #{(elapsedEndTime - elapsedStartTime).getTotalSeconds() / (endTime - startTime).getTotalSeconds();}#)))))))
 
             sum)))
 
 (var GRAPH_TIME_RANGE 365)
 (var GRAPH_DEFAULT_YMAX 1000.0)
-(var GRAPH_DEFAULT_YMIN -1000.0)
-(var TICK_SIZE (/ (+ GRAPH_DEFAULT_YMAX (Math.abs GRAPH_DEFAULT_YMIN)) 50))
+(var TICK_SIZE (/ GRAPH_DEFAULT_YMAX 25))
 
 (function main []
     (let [app (Express.call)
@@ -71,7 +72,9 @@
             &mut actualPoints ""
             &mut theoreticalPoints ""
             &mut tickLines ""
-            &mut minDay -GRAPH_TIME_RANGE]
+            &mut minDay -GRAPH_TIME_RANGE
+            &mut minAmount 0.0
+            &mut maxAmount 0.0]
         
         (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
             (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
@@ -80,8 +83,16 @@
                     (unless (or actual theoretical)
                         (set minDay day))
                     (when actual
+                        (when (< actual minAmount)
+                            (set minAmount actual))
+                        (when (> actual maxAmount)
+                            (set maxAmount actual))
                         (+= actualPoints "${day},$actual "))
                     (when theoretical
+                        (when (< theoretical minAmount)
+                            (set minAmount theoretical))
+                        (when (> theoretical maxAmount)
+                            (set maxAmount theoretical))
                         (+= theoreticalPoints "${day},$theoretical ")))))
         
         (var MONTH_DAYS 30)
@@ -98,9 +109,9 @@
             (res.send (+ 
 "<head><title>${title}</title><script>$(scriptContent)</script></head>"
 "<body>"
-    "<svg viewBox=\"${minDay} ${GRAPH_DEFAULT_YMIN} $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- GRAPH_DEFAULT_YMAX GRAPH_DEFAULT_YMIN)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
+    "<svg viewBox=\"${minDay} $(- (max GRAPH_DEFAULT_YMAX maxAmount)) $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- (max GRAPH_DEFAULT_YMAX maxAmount) minAmount)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
         #"<g transform="scale(1,-1)">"#
-            "<polyline points=\"0,${GRAPH_DEFAULT_YMIN} 0,${GRAPH_DEFAULT_YMAX}\" stroke=\"black\" />" // Y-axis
+            "<polyline points=\"0,${minAmount} 0,$(max GRAPH_DEFAULT_YMAX maxAmount)\" stroke=\"black\" />" // Y-axis
             "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
             "<polyline points=\"${actualPoints}\" stroke=\"green\" fill=\"none\" />" // actual line
             "<polyline points=\"${theoreticalPoints}\" stroke=\"purple\" fill=\"none\" />" // theoretical line
