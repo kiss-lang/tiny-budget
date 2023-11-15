@@ -32,6 +32,49 @@
         (unless groundTruthTime
             (return null))
 
+        // If this day starts a new instance of a repeat transaction, add it:
+        (doFor =>label rt repeatTransactions
+            (case rt
+                ((RepeatMoneyOver start end amount asOf)
+                    (when (< start 0)
+                        (set start (+ 1 (targetTime.daysInThisMonth) start)))
+                    (when (< end 0)
+                        (set end (+ 1 (targetTime.daysInThisMonth) end)))
+                    
+                    (when (= start (targetTime.getDay))
+                        (let [&mut alreadyMadeOne false]
+                            (doFor t transactionsOverTime
+                                (case t
+                                    ((when (and (= thisLabel label) (= (.getMonth (DateTime.fromDate start)) (targetTime.getMonth)))
+                                            (MoneyOver start _ amount _ thisLabel))
+                                        (set alreadyMadeOne true)
+                                        (break))
+                                    (otherwise)))
+                            (unless alreadyMadeOne
+                                (withMutProperties [transactionsOverTime]
+                                    (localVar endTime (DateTime.fromTime (+ (targetTime.getTime) (* (- end start) (dayDelta.getTotalSeconds)))))
+                                    (localVar &mut asOfDateTime (DateTime.fromTime (endTime.getTime)))
+                                    (loop 
+                                        (if asOf
+                                                {
+                                                    #{asOfDateTime += dayDelta;}#
+                                                    (let [desiredDayOfMonth 
+                                                            (if (> asOf 0)
+                                                                    asOf
+                                                                (+ 1 (asOfDateTime.daysInThisMonth) asOf))]
+                                                        (when (= (asOfDateTime.getDay) desiredDayOfMonth)
+                                                            (break)))
+                                                }
+                                            (break)))
+                                    (transactionsOverTime.push
+                                        (MoneyOver
+                                            targetTime
+                                            endTime
+                                            amount
+                                            asOfDateTime
+                                            label)))))))
+                (never otherwise)))
+
         (let [&mut sum groundTruthAmount
                 t transactions
                 tot transactionsOverTime]
@@ -68,75 +111,104 @@
 (function main []
     (let [app (Express.call)
             port 3000
-            title "Tiny Budget"
-            &mut actualPoints ""
-            &mut theoreticalPoints ""
-            &mut tickLines ""
-            &mut minDay -GRAPH_TIME_RANGE
-            &mut minAmount 0.0
-            &mut maxAmount 0.0]
-        
-        (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
-            (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
-                (let [actual (balanceAsOf relativeDay true)
-                        theoretical (balanceAsOf relativeDay false)]
-                    (unless (or actual theoretical)
-                        (set minDay day))
-                    (when actual
-                        (when (< actual minAmount)
-                            (set minAmount actual))
-                        (when (> actual maxAmount)
-                            (set maxAmount actual))
-                        (+= actualPoints "${day},$actual "))
-                    (when theoretical
-                        (when (< theoretical minAmount)
-                            (set minAmount theoretical))
-                        (when (> theoretical maxAmount)
-                            (set maxAmount theoretical))
-                        (+= theoreticalPoints "${day},$theoretical ")))))
-        
-        (var MONTH_DAYS 30)
-        (let [tickOffset (- 1 (.getDay (DateTime.now)))
-                &mut nextX tickOffset]
-            (while (> nextX -GRAPH_TIME_RANGE)
-                (-= nextX MONTH_DAYS))
-            (while (<= nextX GRAPH_TIME_RANGE)
-                (+= tickLines "<polyline points=\"${nextX},$(- (fHalf TICK_SIZE)) ${nextX},$(fHalf TICK_SIZE)\" stroke=\"black\" />")
-                (+= nextX MONTH_DAYS)))
-        
+            title "Tiny Budget"]
+       
         (app.use (BodyParser.value.urlencoded))
         (app.get "/" ->[req res next]
-            (res.send (+ 
-"<head><title>${title}</title><script>$(scriptContent)</script></head>"
-"<body>"
-    "<svg viewBox=\"${minDay} $(- (max GRAPH_DEFAULT_YMAX maxAmount)) $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- (max GRAPH_DEFAULT_YMAX maxAmount) minAmount)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
-        #"<g transform="scale(1,-1)">"#
-            "<polyline points=\"0,${minAmount} 0,$(max GRAPH_DEFAULT_YMAX maxAmount)\" stroke=\"black\" />" // Y-axis
-            "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
-            "<polyline points=\"${actualPoints}\" stroke=\"green\" fill=\"none\" />" // actual line
-            "<polyline points=\"${theoreticalPoints}\" stroke=\"purple\" fill=\"none\" />" // theoretical line
-            tickLines
+            (let [&mut actualPoints ""
+                        &mut theoreticalPoints ""
+                        &mut tickLines ""
+                        &mut minDay -GRAPH_TIME_RANGE
+                        &mut minAmount 0.0
+                        &mut maxAmount 0.0
+                        &mut tableRows ""]
+                    
+                    (doFor =>label record repeatTransactions
+                        (case record
+                            ((RepeatMoneyOver start end amount asOf)
+                                (+= tableRows "<tr><td>${label}</td><td>$amount from $start to $end ")
+                                (when asOf
+                                    (+= tableRows "as of the next $asOf"))
+                                (+= tableRows "</td></tr>"))
+                            (never otherwise)))
+                    
+                    (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
+                        (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
+                            (let [actual (balanceAsOf relativeDay true)
+                                    theoretical (balanceAsOf relativeDay false)]
+                                (unless (or actual theoretical)
+                                    (set minDay day))
+                                (when actual
+                                    (when (< actual minAmount)
+                                        (set minAmount actual))
+                                    (when (> actual maxAmount)
+                                        (set maxAmount actual))
+                                    (+= actualPoints "${day},$actual "))
+                                (when theoretical
+                                    (when (< theoretical minAmount)
+                                        (set minAmount theoretical))
+                                    (when (> theoretical maxAmount)
+                                        (set maxAmount theoretical))
+                                    (+= theoreticalPoints "${day},$theoretical ")))))
+                    
+                    (var MONTH_DAYS 30)
+                    (let [tickOffset (- 1 (.getDay (DateTime.now)))
+                            &mut nextX tickOffset]
+                        (while (> nextX -GRAPH_TIME_RANGE)
+                            (-= nextX MONTH_DAYS))
+                        (while (<= nextX GRAPH_TIME_RANGE)
+                            (+= tickLines "<polyline points=\"${nextX},$(- (fHalf TICK_SIZE)) ${nextX},$(fHalf TICK_SIZE)\" stroke=\"black\" />")
+                            (+= nextX MONTH_DAYS)))
+                
+                        (res.send (+ 
+            "<head>"
+            "<title>${title}</title>"
+            "<script>$(scriptContent)</script>"
+            "<style>td { border: 1px solid black; }</style>"
+            "</head>"
+            "<body>"
+                "<svg viewBox=\"${minDay} $(- (max GRAPH_DEFAULT_YMAX maxAmount)) $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- (max GRAPH_DEFAULT_YMAX maxAmount) minAmount)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
+                    #"<g transform="scale(1,-1)">"#
+                        "<polyline points=\"0,${minAmount} 0,$(max GRAPH_DEFAULT_YMAX maxAmount)\" stroke=\"black\" />" // Y-axis
+                        "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
+                        "<polyline points=\"${actualPoints}\" stroke=\"green\" fill=\"none\" />" // actual line
+                        "<polyline points=\"${theoreticalPoints}\" stroke=\"purple\" fill=\"none\" />" // theoretical line
+                        tickLines
 
-        "</g>"
-    "</svg>"
+                    "</g>"
+                "</svg>"
 
-    "<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
-    "<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
-    ###"
-    <form action="/submit" method="post">
-        <label for="amountBox">Amount</label>
-        <input type="text" id="amountBox" name="amountBox"></input>
-        <label for="type">Transaction type:</label>
-        <select id="type" name="type">
-            <option value="Expense">Expense</option>
-            <option value="Gain">Gain</option>
-            <option value="GroundTruth">Ground Truth</option>
-            <option value="GainOverMonth">Gain over a month</option> <!-- TODO remove this -->
-        </select>
-        <input type="submit" value="Submit"></input>
-    </form>
-    "###
-"</body>")))
+                "<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
+                "<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
+                
+                "<table>"
+                tableRows
+                "</table>"
+
+                ###"
+                <form action="/submit" method="post">
+                    <label for="amountBox">Amount</label>
+                    <input type="text" id="amountBox" name="amountBox"></input>
+                    <label for="labelBox">Label</label>
+                    <input type="text" id="labelBox" name="labelBox"></input>
+                    <label for="startBox">Start</label>
+                    <input type="text" id="startBox" name="startBox"></input>
+                    <label for="endBox">End</label>
+                    <input type="text" id="endBox" name="endBox"></input>
+                    <label for="asOfBox">As Of</label>
+                    <input type="text" id="asOfBox" name="asOfBox"></input>
+                    <label for="type">Transaction type:</label>
+                    <select id="type" name="type">
+                        <option value="Expense">Expense</option>
+                        <option value="Gain">Gain</option>
+                        <option value="GroundTruth">Ground Truth</option>
+                        <option value="RecurringExpense">Recurring expense over time</option>
+                        <option value="RecurringGain">Recurring gain over time</option>
+                    </select>
+                    <input type="submit" value="Submit"></input>
+                </form>
+                "###
+            "</body>"))))
 
         (app.post "/submit" ->[req res] {
             (try
@@ -150,13 +222,20 @@
                                 (transactions.push (MoneyAsOf (Date.now) -amount)))
                             ("Gain"
                                 (transactions.push (MoneyAsOf (Date.now) amount)))
-                            // TODO remove this:
-                            ("GainOverMonth"
-                                (transactionsOverTime.push (MoneyOver 
-                                                                (Date.now)
-                                                                (let [nowDateTime (DateTime.fromDate (Date.now))]
-                                                                    (.getDate #{nowDateTime + monthDelta;}#))
-                                                                amount) ))
+                            ("RecurringExpense"
+                                (dictSet repeatTransactions req.body.labelBox
+                                    (RepeatMoneyOver 
+                                        (Std.parseInt req.body.startBox)
+                                        (Std.parseInt req.body.endBox)
+                                        -amount
+                                        (try (Std.parseInt req.body.asOfBox) (catch [e] null))) ))
+                            ("RecurringGain"
+                                (dictSet repeatTransactions req.body.labelBox
+                                    (RepeatMoneyOver 
+                                        (Std.parseInt req.body.startBox)
+                                        (Std.parseInt req.body.endBox)
+                                        amount
+                                        (try (Std.parseInt req.body.asOfBox) (catch [e] null))) ))
                             (never otherwise))))
                 (catch [e] (print "couldn't parse amount")))
             
