@@ -15,7 +15,7 @@
 // TODO delete this
 (var monthDelta (DateTimeInterval.create (DateTime.fromDate (new Date 2023 0 1 0 0 0)) (DateTime.fromDate (new Date 2023 1 1 0 0 0))))
 
-(function balanceAsOf [:DateTime targetTime :Bool actual]
+(function :Null<Float> balanceAsOf [:DateTime targetTime :Bool actual]
     (let [gtv groundTruthValues
             &mut :DateTime groundTruthTime null
             &mut :Float groundTruthAmount 0]
@@ -28,6 +28,9 @@
                     (set groundTruthTime time)
                     (set groundTruthAmount amount)
                 }))
+
+        (unless groundTruthTime
+            (return null))
 
         (let [&mut sum groundTruthAmount
                 t transactions
@@ -67,12 +70,19 @@
             title "Tiny Budget"
             &mut actualPoints ""
             &mut theoreticalPoints ""
-            &mut tickLines ""]
+            &mut tickLines ""
+            &mut minDay -GRAPH_TIME_RANGE]
         
         (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
             (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
-                (+= actualPoints "${day},$(balanceAsOf relativeDay true) ")
-                (+= theoreticalPoints "${day},$(balanceAsOf relativeDay false) ")))
+                (let [actual (balanceAsOf relativeDay true)
+                        theoretical (balanceAsOf relativeDay false)]
+                    (unless (or actual theoretical)
+                        (set minDay day))
+                    (when actual
+                        (+= actualPoints "${day},$actual "))
+                    (when theoretical
+                        (+= theoreticalPoints "${day},$theoretical ")))))
         
         (var MONTH_DAYS 30)
         (let [tickOffset (- 1 (.getDay (DateTime.now)))
@@ -88,7 +98,7 @@
             (res.send (+ 
 "<head><title>${title}</title><script>$(scriptContent)</script></head>"
 "<body>"
-    "<svg viewBox=\"${-GRAPH_TIME_RANGE} ${GRAPH_DEFAULT_YMIN} $(* 2 GRAPH_TIME_RANGE) $(- GRAPH_DEFAULT_YMAX GRAPH_DEFAULT_YMIN)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
+    "<svg viewBox=\"${minDay} ${GRAPH_DEFAULT_YMIN} $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- GRAPH_DEFAULT_YMAX GRAPH_DEFAULT_YMIN)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
         #"<g transform="scale(1,-1)">"#
             "<polyline points=\"0,${GRAPH_DEFAULT_YMIN} 0,${GRAPH_DEFAULT_YMAX}\" stroke=\"black\" />" // Y-axis
             "<polyline points=\"${-GRAPH_TIME_RANGE},0 ${GRAPH_TIME_RANGE},0\" stroke=\"black\" />" // X-axis
