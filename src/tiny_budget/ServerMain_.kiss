@@ -97,9 +97,9 @@
                             (when #{asOfTime > groundTruthTime && asOfTime <= targetTime;}#
                                 (+= sum amount))
                         // For calculating a theoretical balance estimate, only the start, end, and targetTime matter
-                        (if #{elapsedStartTime >= groundTruthTime && targetTime > endTime;}#
+                        (if #{startTime >= groundTruthTime && targetTime > endTime;}#
                                 (+= sum amount)
-                            (when #{startTime > groundTruthTime || targetTime <= endTime;}#
+                            (when #{targetTime <= endTime && !(targetTime <= startTime);}#
                                 (+= sum (* amount #{(elapsedEndTime - elapsedStartTime).getTotalSeconds() / (endTime - startTime).getTotalSeconds();}#)))))))
 
             sum)))
