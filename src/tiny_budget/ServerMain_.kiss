@@ -232,10 +232,10 @@
                         ("RecurringGain"
                             (dictSet repeatTransactions req.body.labelBox
                                 (RepeatMoneyOver 
-                                    (Std.parseInt req.body.startBox)
-                                    (Std.parseInt req.body.endBox)
+                                    (ifLet [start (Std.parseInt req.body.startBox)] start 1)
+                                    (ifLet [end (Std.parseInt req.body.endBox)] end -1)
                                     amount
-                                    (try (Std.parseInt req.body.asOfBox) (catch [e] null))) )
+                                    (Std.parseInt req.body.asOfBox)) )
                             null)
                         (never otherwise))
                 null))
