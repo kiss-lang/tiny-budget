@@ -236,7 +236,8 @@
                                         (Std.parseInt req.body.endBox)
                                         amount
                                         (try (Std.parseInt req.body.asOfBox) (catch [e] null))) ))
-                            (never otherwise))))
+                            (never otherwise))
+                    null))
                 (catch [e] (print "couldn't parse amount")))
             
             (res.redirect "/")})

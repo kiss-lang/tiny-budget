@@ -1,5 +1,5 @@
-# @install: lix --silent download "gh://github.com/kiss-lang/kiss-express#0ddf19158e1788fb2c8af885aade672a30fb0e59" into kiss-express/0.0.0/github/0ddf19158e1788fb2c8af885aade672a30fb0e59
+# @install: lix --silent download "gh://github.com/kiss-lang/kiss-express#9a60d3da73f6af7e71b4c3e9287fb3504853bea4" into kiss-express/0.0.0/github/9a60d3da73f6af7e71b4c3e9287fb3504853bea4
 -lib hxnodejs
 -lib kiss
--cp ${HAXE_LIBCACHE}/kiss-express/0.0.0/github/0ddf19158e1788fb2c8af885aade672a30fb0e59/src/
+-cp ${HAXE_LIBCACHE}/kiss-express/0.0.0/github/9a60d3da73f6af7e71b4c3e9287fb3504853bea4/src/
 -D kiss-express=0.0.0
