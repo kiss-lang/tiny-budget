@@ -4,10 +4,10 @@
 --each
 --main tiny_budget.FrontEndMain
 --dce full
---js frontend.js
+--js bin/frontend.js
 --next
 -cp externs
 -lib datetime
 --main tiny_budget.ServerMain
---js index.js
---cmd node index.js
+--js bin/index.js
+--cmd node bin/index.js

@@ -1,22 +1,25 @@
+(loadFrom "kiss-express" "src/ServerUtil.kiss")
+
 (import tiny_budget.ServerMain)
 (import datetime.DateTime)
 (import datetime.DateTimeInterval)
 
 (defMacro scriptContent []
-    (File.getContent "frontend.js"))
+    (File.getContent "bin/frontend.js"))
 
-(savedVar :Array<Record> groundTruthValues [(MoneyAsOf (DateTime.now) 0)])
-(savedVar :Array<Record> transactions [])
-(savedVar :Array<Record> transactionsOverTime [])
+(userProp :Array<Record> groundTruthValues [(MoneyAsOf (DateTime.now) 0)])
+(userProp :Array<Record> transactions [])
+(userProp :Array<Record> transactionsOverTime [])
 
-(savedVar :Map<String,Record> repeatTransactions (new Map))
+(userProp :Map<String,Record> repeatTransactions (new Map))
 
 (var dayDelta (DateTimeInterval.create (DateTime.fromDate (new Date 2023 0 1 0 0 0)) (DateTime.fromDate (new Date 2023 0 2 0 0 0))))
 // TODO delete this
 (var monthDelta (DateTimeInterval.create (DateTime.fromDate (new Date 2023 0 1 0 0 0)) (DateTime.fromDate (new Date 2023 1 1 0 0 0))))
 
-(function :Null<Float> balanceAsOf [:DateTime targetTime :Bool actual]
-    (let [gtv groundTruthValues
+(function :Null<Float> balanceAsOf [req :DateTime targetTime :Bool actual]
+    (unless req.user (return 0))
+    (let [gtv (get_user_groundTruthValues req)
             &mut :DateTime groundTruthTime null
             &mut :Float groundTruthAmount 0]
 
@@ -33,7 +36,7 @@
             (return null))
 
         // If this day starts a new instance of a repeat transaction, add it:
-        (doFor =>label rt repeatTransactions
+        (doFor =>label rt (get_user_repeatTransactions req)
             (case rt
                 ((RepeatMoneyOver start end amount asOf)
                     (when (< start 0)
@@ -43,7 +46,7 @@
                     
                     (when (= start (targetTime.getDay))
                         (let [&mut alreadyMadeOne false]
-                            (doFor t transactionsOverTime
+                            (doFor t (get_user_transactionsOverTime req)
                                 (case t
                                     ((when (and (= thisLabel label) (= (.getMonth (DateTime.fromDate start)) (targetTime.getMonth)))
                                             (MoneyOver start _ amount _ thisLabel))
@@ -51,7 +54,7 @@
                                         (break))
                                     (otherwise)))
                             (unless alreadyMadeOne
-                                (withMutProperties [transactionsOverTime]
+                                (withUserProp transactionsOverTime req
                                     (localVar endTime (DateTime.fromTime (+ (targetTime.getTime) (* (- end start) (dayDelta.getTotalSeconds)))))
                                     (localVar &mut asOfDateTime (DateTime.fromTime (endTime.getTime)))
                                     (loop 
@@ -76,8 +79,8 @@
                 (never otherwise)))
 
         (let [&mut sum groundTruthAmount
-                t transactions
-                tot transactionsOverTime]
+                t (get_user_transactions req)
+                tot (get_user_transactionsOverTime req)]
 
             (whileLet [(MoneyAsOf time amount) (t.shift)
                             tTime (DateTime.fromDate time)]
@@ -108,22 +111,19 @@
 (var GRAPH_DEFAULT_YMAX 1000.0)
 (var TICK_SIZE (/ GRAPH_DEFAULT_YMAX 25))
 
-(function main []
-    (let [app (Express.call)
-            port 3000
-            title "Tiny Budget"]
-       
-        (app.use (BodyParser.value.urlencoded))
-        (app.get "/" ->[req res next]
-            (let [&mut actualPoints ""
-                        &mut theoreticalPoints ""
-                        &mut tickLines ""
-                        &mut minDay -GRAPH_TIME_RANGE
-                        &mut minAmount 0.0
-                        &mut maxAmount 0.0
-                        &mut tableRows ""]
-                    
-                    (doFor =>label record repeatTransactions
+(kissExpress app [3000]
+    (app.use (BodyParser.value.urlencoded))
+    (app.get "/" ->[req res next]
+        (let [&mut actualPoints ""
+                    &mut theoreticalPoints ""
+                    &mut tickLines ""
+                    &mut minDay -GRAPH_TIME_RANGE
+                    &mut minAmount 0.0
+                    &mut maxAmount 0.0
+                    &mut tableRows ""]
+                
+                (when req.user
+                    (doFor =>label record (get_user_repeatTransactions req)
                         (case record
                             ((RepeatMoneyOver start end amount asOf)
                                 (+= tableRows "<tr><td>${label}</td><td>$amount from $start to $end ")
@@ -131,11 +131,11 @@
                                     (+= tableRows "as of the next $asOf"))
                                 (+= tableRows "</td></tr>"))
                             (never otherwise)))
-                    
+                
                     (doFor day (range -GRAPH_TIME_RANGE GRAPH_TIME_RANGE)
                         (let [relativeDay (DateTime.fromTime #{DateTime.now().getTime() + dayDelta.getTotalSeconds() * day;}#)]
-                            (let [actual (balanceAsOf relativeDay true)
-                                    theoretical (balanceAsOf relativeDay false)]
+                            (let [actual (balanceAsOf req relativeDay true)
+                                    theoretical (balanceAsOf req relativeDay false)]
                                 (unless (or actual theoretical)
                                     (set minDay day))
                                 (when actual
@@ -150,22 +150,21 @@
                                     (when (> theoretical maxAmount)
                                         (set maxAmount theoretical))
                                     (+= theoreticalPoints "${day},$theoretical ")))))
-                    
-                    (var MONTH_DAYS 30)
-                    (let [tickOffset (- 1 (.getDay (DateTime.now)))
-                            &mut nextX tickOffset]
-                        (while (> nextX -GRAPH_TIME_RANGE)
-                            (-= nextX MONTH_DAYS))
-                        (while (<= nextX GRAPH_TIME_RANGE)
-                            (+= tickLines "<polyline points=\"${nextX},$(- (fHalf TICK_SIZE)) ${nextX},$(fHalf TICK_SIZE)\" stroke=\"black\" />")
-                            (+= nextX MONTH_DAYS)))
                 
-                        (res.send (+ 
-            "<head>"
-            "<title>${title}</title>"
-            "<script>$(scriptContent)</script>"
-            "<style>td { border: 1px solid black; }</style>"
-            "</head>"
+                (var MONTH_DAYS 30)
+                (let [&mut tickOffset (- 1 (.getDay (DateTime.now)))
+                        &mut nextX tickOffset]
+                    (while (> nextX -GRAPH_TIME_RANGE)
+                        (-= nextX MONTH_DAYS))
+                    (while (<= nextX GRAPH_TIME_RANGE)
+                        (+= tickLines "<polyline points=\"${nextX},$(- (fHalf TICK_SIZE)) ${nextX},$(fHalf TICK_SIZE)\" stroke=\"black\" />")
+                        (+= nextX MONTH_DAYS))))
+            
+                (res.send (+ 
+        "<head><title>${pageName}</title><script>$(scriptContent)</script></head> $(kissExpressHeader req)"
+        "<style>td { border: 1px solid black; }</style>"
+        "</head>"
+        (when req.user (+
             "<body>"
                 "<svg viewBox=\"${minDay} $(- (max GRAPH_DEFAULT_YMAX maxAmount)) $(+ GRAPH_TIME_RANGE (Math.abs minDay)) $(- (max GRAPH_DEFAULT_YMAX maxAmount) minAmount)\" preserveAspectRatio=\"none\" width=\"800\" height=\"480\">"
                     #"<g transform="scale(1,-1)">"#
@@ -178,8 +177,8 @@
                     "</g>"
                 "</svg>"
 
-                "<p>Actual balance: $(balanceAsOf (DateTime.now) true)</p>"
-                "<p>Theoretical balance: $(balanceAsOf (DateTime.now) false)</p>"
+                "<p>Actual balance: $(balanceAsOf req (DateTime.now) true)</p>"
+                "<p>Theoretical balance: $(balanceAsOf req (DateTime.now) false)</p>"
                 
                 "<table>"
                 tableRows
@@ -191,9 +190,9 @@
                     <input type="text" id="amountBox" name="amountBox"></input>
                     <label for="labelBox">Label</label>
                     <input type="text" id="labelBox" name="labelBox"></input>
-                    <label for="startBox">Start</label>
+                    <label for="startBox">Start (Day of Month, not 0)</label>
                     <input type="text" id="startBox" name="startBox"></input>
-                    <label for="endBox">End</label>
+                    <label for="endBox">End (Day of Month, negative counts from end)</label>
                     <input type="text" id="endBox" name="endBox"></input>
                     <label for="asOfBox">As Of</label>
                     <input type="text" id="asOfBox" name="asOfBox"></input>
@@ -208,39 +207,38 @@
                     <input type="submit" value="Submit"></input>
                 </form>
                 "###
-            "</body>"))))
+            "</body>"))))))
 
-        (app.post "/submit" ->[req res] {
-            (try
-                (let [amount (Std.parseFloat req.body.amountBox)]
-                    (print "handling ${req.body.type} of ${amount}")
-                    (withMutProperties [groundTruthValues transactions transactionsOverTime repeatTransactions]
-                        (case req.body.type
-                            ("GroundTruth"
-                                (groundTruthValues.push (MoneyAsOf (Date.now) amount)))
-                            ("Expense"
-                                (transactions.push (MoneyAsOf (Date.now) -amount)))
-                            ("Gain"
-                                (transactions.push (MoneyAsOf (Date.now) amount)))
-                            ("RecurringExpense"
-                                (dictSet repeatTransactions req.body.labelBox
-                                    (RepeatMoneyOver 
-                                        (Std.parseInt req.body.startBox)
-                                        (Std.parseInt req.body.endBox)
-                                        -amount
-                                        (try (Std.parseInt req.body.asOfBox) (catch [e] null))) ))
-                            ("RecurringGain"
-                                (dictSet repeatTransactions req.body.labelBox
-                                    (RepeatMoneyOver 
-                                        (Std.parseInt req.body.startBox)
-                                        (Std.parseInt req.body.endBox)
-                                        amount
-                                        (try (Std.parseInt req.body.asOfBox) (catch [e] null))) ))
-                            (never otherwise))
-                    null))
-                (catch [e] (print "couldn't parse amount")))
-            
-            (res.redirect "/")})
-
-        (#unless test
-            (app.listen port ->(print "kiss-express listening at http://localhost:$port")))))
+    (app.post "/submit" ->[req res] {
+        (try
+            (let [amount (Std.parseFloat req.body.amountBox)]
+                (print "handling ${req.body.type} of ${amount}")
+                (withUserProps [groundTruthValues transactions transactionsOverTime repeatTransactions] req
+                    (case req.body.type
+                        ("GroundTruth"
+                            (groundTruthValues.push (MoneyAsOf (Date.now) amount)))
+                        ("Expense"
+                            (transactions.push (MoneyAsOf (Date.now) -amount)))
+                        ("Gain"
+                            (transactions.push (MoneyAsOf (Date.now) amount)))
+                        ("RecurringExpense"
+                            (dictSet repeatTransactions req.body.labelBox
+                                (RepeatMoneyOver 
+                                    (ifLet [start (Std.parseInt req.body.startBox)] start 1)
+                                    (ifLet [end (Std.parseInt req.body.endBox)] end -1)
+                                    -amount
+                                    (Std.parseInt req.body.asOfBox)))
+                            null)
+                        ("RecurringGain"
+                            (dictSet repeatTransactions req.body.labelBox
+                                (RepeatMoneyOver 
+                                    (Std.parseInt req.body.startBox)
+                                    (Std.parseInt req.body.endBox)
+                                    amount
+                                    (try (Std.parseInt req.body.asOfBox) (catch [e] null))) )
+                            null)
+                        (never otherwise))
+                null))
+            (catch [e] (print "couldn't parse amount")))
+        
+        (res.redirect "/")}))
