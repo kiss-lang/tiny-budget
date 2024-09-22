@@ -111,7 +111,7 @@
 (var GRAPH_DEFAULT_YMAX 1000.0)
 (var TICK_SIZE (/ GRAPH_DEFAULT_YMAX 25))
 
-(kissExpress app [3000]
+(kissExpress app [3000 3001 3002]
     (app.use (BodyParser.value.urlencoded))
     (app.get "/" ->[req res next]
         (let [&mut actualPoints ""
